@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accident Hotspots Map</title>
+  <style>
+    :root {
+      --bg: #f0f2f5;
+      --panel-bg: #fff;
+      --text-primary: #333;
+      --text-secondary: #555;
+      --accent: #4caf50;
+      --border: #ddd;
+      --radius: 6px;
+      --shadow: 0 2px 6px rgba(0,0,0,0.1);
+      --font-base: 14px;
+      --font-lg: 16px;
+      --font-xl: 18px;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:20px; background:var(--bg); font-family:'Segoe UI',sans-serif; }
+    .container { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
+    .box { background:var(--panel-bg); border:1px solid var(--border); border-radius:var(--radius); padding:16px; box-shadow:var(--shadow); }
+    h3 { margin-top:0; font-size:var(--font-xl); color:var(--text-primary); }
+    .form-group { margin-bottom:12px; }
+    .form-group label { display:block; margin-bottom:4px; color:var(--text-secondary); }
+    .form-group select, .form-group input { width:100%; padding:8px; border:1px solid var(--border); border-radius:var(--radius); }
+    button { width:100%; padding:12px; font-size:var(--font-lg); background:var(--accent); color:#fff; border:none; border-radius:var(--radius); cursor:pointer; }
+    button:hover { background:#43a047; }
+    #map { width:100%; height:300px; border-radius:var(--radius); }
+    #severityChart { width:100%; height:300px; }
+  </style>
+  <script async defer
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDRaLSGVpe3qNvSQ0j9vEnOUNgGC5UMfX4&callback=initMap">
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    let map, geocoder, markers = [], chart;
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById('map'), {
+        center: { lat: 37.0902, lng: -95.7129 },
+        zoom: 4
+      });
+      geocoder = new google.maps.Geocoder();
+    }
+
+    function clearMarkers() {
+      markers.forEach(m => m.setMap(null));
+      markers = [];
+    }
+
+    async function loadHotspots() {
+      clearMarkers();
+
+      const year = document.getElementById('year').value;
+      const wc   = document.getElementById('weather_code').value;
+      const rc   = document.getElementById('road_class_code').value;
+      const url  = `/hotspots?year=${year}&weather_code=${wc}&road_class_code=${rc}`;
+
+      console.log('Fetching:', url);
+      const points = await fetch(url).then(r => r.json());
+      console.log('Points returned:', points);
+
+      if (!points.length) {
+        alert('No hotspots found for those filters.');
+        return;
+      }
+
+      const bounds = new google.maps.LatLngBounds();
+      points.forEach(p => {
+        const pos = { lat: p.lat, lng: p.lng };
+        const m = new google.maps.Marker({
+          position: pos,
+          map,
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 6,
+            fillColor: 'red',
+            fillOpacity: 0.7,
+            strokeWeight: 0
+          }
+        });
+        m.addListener('click', () => showDetails(p.lat, p.lng));
+        markers.push(m);
+        bounds.extend(pos);
+      });
+
+      map.fitBounds(bounds);
+    }
+
+    async function showDetails(lat, lng) {
+      const counts = await fetch(`/details?lat=${lat}&lng=${lng}`).then(r => r.json());
+      const labels = ['Slight', 'Serious', 'Fatal'];
+      const data   = labels.map((_, i) => counts[i] || 0);
+      const maxVal = Math.max(...data);
+
+      const ctx = document.getElementById('severityChart').getContext('2d');
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            data,
+            backgroundColor: ['#4caf50', '#ff9800', '#f44336']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true,
+              suggestedMax: maxVal + 1,
+              ticks: { stepSize: 1, color: '#555' },
+              title: { display: true, text: 'Count', color: '#333' }
+            },
+            x: {
+              title: { display: true, text: 'Severity Level', color: '#333' }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: { enabled: true }
+          }
+        }
+      });
+    }
+  </script>
+</head>
+<body>
+  <div class="container">
+    <div class="box">
+      <h3>Filters</h3>
+      <div class="form-group">
+        <label for="year">Year</label>
+        <select id="year">
+          <option value="">All</option>
+          <option>2019</option>
+          <option>2020</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="weather_code">Weather Condition</label>
+        <select id="weather_code">
+          <option value="">All</option>
+          <option value="0">Fine without high winds</option>
+          <option value="1">Fine with high winds</option>
+          <option value="2">Raining with high winds</option>
+          <option value="3">Fog or mist</option>
+          <option value="4">Snowing with high winds</option>
+          <option value="5">Raining</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="road_class_code">Road Class</label>
+        <select id="road_class_code">
+          <option value="">All</option>
+          <option value="0">Unclassified</option>
+          <option value="1">A</option>
+          <option value="2">B</option>
+          <option value="3">Motorway</option>
+        </select>
+      </div>
+      <button onclick="loadHotspots()">Filter</button>
+    </div>
+
+    <div class="box">
+      <h3>Location Hotspots Map</h3>
+      <div id="map"></div>
+    </div>
+
+    <div class="box" style="grid-column: span 2; height: 350px; position: relative;">
+      <h3>Severity Breakdown</h3>
+      <canvas id="severityChart"></canvas>
+    </div>
+  </div>
+</body>
+</html>
